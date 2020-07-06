@@ -1,0 +1,13 @@
+name: SaatchiTextAnalyzer
+title:
+username:
+account: davelorino
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1952398
+bundleId: 2900379
+url: https://davelorino.shinyapps.io/SaatchiTextAnalyzer/
+when: 1584668378.47556
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: au-states.geojson|gdal.postcodes2.rds|MapsTesting.Rmd|Postcode File.csv|seifa.rds|StatesShapeFile2.rds|austshape

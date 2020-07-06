@@ -1,0 +1,193 @@
+---
+title: "Map Test"
+output: html_document
+---
+
+```{r}
+library(rgdal)     # Spatial data processing
+library(jsonlite)   # Read json files
+library(readr)      # Fast I/O
+library(sp)
+library(tidygeocoder)
+
+# Read the GeoJSON File (this was obtained by running the following bash command with a shapefile downloaded from the internet:
+## $ ogr2ogr -f GeoJSON -t_srs crs:84 au-postcodes.geojson POA_2011_AUST.shp
+## the tutorial is here: https://lukesingham.com/map-of-australia-using-osm-psma-and-shiny/ )
+gdal.states <- readOGR("au-states.geojson")
+
+write_rds(gdal.states, "StatesShapeFile.rds")
+gdal.states <- readRDS("StatesShapeFile.rds")
+
+names(gdal.states)
+unique(gdal.states$STE_NAME16)
+
+head(gdal.states@polygons)
+  
+
+fbnews <- readr::read_csv(path.expand("~/Downloads/footballnews.csv"))
+
+unique(fbnews$Subregion)              
+
+library(tidytext)
+library(tidyverse)
+
+fbtokens <- fbnews %>%
+  mutate(Sentence = onlyASCII(as.character(`Hit Sentence`))) %>%
+  unnest_tokens(word, Sentence) %>%
+  inner_join(get_sentiments("afinn"), by = "word") %>%
+  group_by(word, Influencer) %>%
+  summarise(occurences = n(),
+            contribution = sum(value)) %>%
+  ungroup() %>%
+  group_by(Influencer) %>%
+  summarise(Sentiment_Total = sum(contribution))
+
+fbtokens
+
+contributions <- single_tokens %>%
+  inner_join(get_sentiments("afinn"), by = "word") %>%
+  group_by(word) %>%
+  summarize(occurences = n(),
+            contribution = sum(value))
+
+
+
+names(fbnews)
+
+sentiment(onlyASCII(as.character(fbnews$`Hit Sentence`)))
+```
+
+```{r}
+
+headfbnews <- head(fbnews)
+
+addresses <- fbnews %>%
+  mutate(Subregion_string = as.character(Subregion)) %>%
+  geocode_osm(Subregion_string, method = "osm", lat = lat, long = long, verbose = TRUE)
+
+
+fbnews_unique_address <- fbnews[!duplicated(fbnews$Subregion),]
+
+library(tidygeocoder)
+
+fbnews_unique_address %>%
+  mutate(Subregion_string = onlyASCII(as.character(Subregion))) %>%
+  filter(!Subregion_string == "NA") %>%
+  geocode(address = Subregion_string, method = "osm", verbose = TRUE)
+
+
+?tidygeocoder::geocode
+```
+
+```{r}
+
+gdal.states <- readRDS("StatesShapeFile.rds")
+
+gdal.states@data$STE_NAME16 <- as.character(gdal.states@data$STE_NAME16)
+
+maps_data_temp <- fbnews %>%
+  mutate(Cleaned_Location_Text = as.character((Subregion)))
+        maps_data_temp$Cleaned_Location_Text = utf8::utf8_format(maps_data_temp$Cleaned_Location_Text)
+        Encoding(maps_data_temp$Cleaned_Location_Text) <- "latin1"
+        maps_data_temp$Cleaned_Location_Text <- stripHTML(maps_data_temp$Cleaned_Location_Text)
+        maps_data_temp$Cleaned_Location_Text <- onlyASCII(maps_data_temp$Cleaned_Location_Text)
+  maps_data_temp2 <- maps_data_temp %>%
+        mutate(STE_NAME16 = 
+              case_when(
+                  str_detect(Cleaned_Location_Text, ".*queensland.*") ~ "Queensland",
+                  str_detect(Cleaned_Location_Text, ".*Queensland.*") ~ "Queensland",
+                  str_detect(Cleaned_Location_Text, ".*QLD.*") ~ "Queensland",
+                  str_detect(Cleaned_Location_Text, ".*nsw.*") ~ "New South Wales",
+                  str_detect(Cleaned_Location_Text, ".*New.*") ~ "New South Wales",
+                  str_detect(Cleaned_Location_Text, ".*Vic.*") ~ "Victoria",
+                  str_detect(Cleaned_Location_Text, ".*VIC.*") ~ "Victoria",
+                  str_detect(Cleaned_Location_Text, "ACT") ~ "Australian Capital Territory",
+                  str_detect(Cleaned_Location_Text, "Act") ~ "Australian Capital Territory",
+                  str_detect(Cleaned_Location_Text, ".*Australian Cap.*") ~ "Australian Capital Territory",
+                  str_detect(Cleaned_Location_Text, ".*Western.*") ~ "Western Australia",
+                  str_detect(Cleaned_Location_Text, "WA") ~ "Western Australia",
+                  str_detect(Cleaned_Location_Text, ".*South Au.*") ~ "South Australia",
+                  str_detect(Cleaned_Location_Text, ".*Tas.*") ~ "Tasmania",
+                  str_detect(Cleaned_Location_Text, ".*North.*") ~ "Northern Territory",
+                  str_detect(Cleaned_Location_Text, ".*NT.*") ~ "Northern Territory"))
+
+  
+ maps_data_temp3 <- maps_data_temp2 %>%
+    group_by(STE_NAME16) %>%
+    summarise(`Number of Reports` = n()) %>%
+   filter(STE_NAME16 != "NA") %>%
+    mutate(Percentage = as.integer(round(((`Number of Reports` / sum(`Number of Reports`))) * 100, 2)))
+
+ str(maps_data_temp3)
+ 
+```
+ 
+```{r} 
+
+gdal.states@data <- dplyr::left_join(gdal.states@data, maps_data_temp3 , by.x = "STE_NAME16", all.x = TRUE)
+
+
+unique(maps_data_temp3$STE_NAME16)
+maps_data_temp3
+
+str(maps_data_temp3$STE_NAME16)
+str(gdal.states@data$STE_NAME16)
+arrange(gdal.states@data, desc(Percentage))
+```
+
+
+```{r}
+library(tidyverse)
+library(leaflet)
+library(colorspace)
+library(raster)
+library(rgdal)
+library(classInt)
+library(RColorBrewer)
+```
+
+```{r}
+
+percentage_bins = c(0, 100, 300, 500, 1000, 2000, 4000, 6000, Inf)
+pal <- colorBin("YlOrRd", domain = maps_data_temp3$`Number of Reports`, bins = percentage_bins, reverse = FALSE)
+
+gdal.states@data$STE_NAME16 <- mutate(new = case_when(gdal.states@data$STE_NAME16 == "Queensland") ~ "Western Australia",
+case_when(gdal.states@data$STE_NAME16 == "Queensland") ~ "Western Australia")
+            
+
+        leaflet() %>%
+          addTiles() %>%
+            setView(lng = 134.48, lat = -25.73, zoom = 5) %>%
+            addPolygons(data = gdal.states, #,
+                         fillColor = ~pal(gdal.states$`Number of Reports`),
+                           weight = 1,
+                            opacity = 1,
+                            color = "white",
+                            dashArray = "2",
+                            fillOpacity = .32,
+                            highlight = highlightOptions(
+                                weight = 3.5, 
+                                color = "white",
+                                dashArray = "4",
+                                fillOpacity = 0.32,
+                                bringToFront = TRUE),
+                            layerId = gdal.states@data$STE_NAME16,
+                        label = sprintf("<strong>%s<br/></strong><br/>%s",
+                                      paste("Number of Reports: ", gdal.states$`Number of Reports`, sep = ""),
+                                        paste("State: ", gdal.states$STE_NAME16, sep = "")) %>%
+                          lapply(htmltools::HTML),
+                        labelOptions = labelOptions(
+                          style = list("font-weight" = "normal", padding = "3px 8px"),
+                          textsize = "15px",
+                          direction = "auto"))
+
+        
+```
+
+```{r}
+
+
+
+```
+
+

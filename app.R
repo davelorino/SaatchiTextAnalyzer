@@ -20,7 +20,7 @@ library(rgdal)
 library(rintrojs)
 library(shinyalert)
 
-#afinn <- readRDS("afinn.rds")
+afinn <- readRDS("afinn.rds")
 
 options(shiny.maxRequestSize=100*1024^2)
 
@@ -38,7 +38,7 @@ saatchiBigramize <- function(df){
         unnest_tokens(bigram, Comment2, "ngrams", n = 2)
 }
 
-
+gdal.states <- readRDS("StatesShapeFile.rds")
 
 glossary <- data.frame(Tab = c("Tables", "Tables", "Tables",
                                "Visualizations", "Visualizations",
@@ -217,7 +217,7 @@ gdal.states <- readRDS("StatesShapeFile.rds")
                                        ),
                                        uiOutput("variables_maps"),
                                        uiOutput("variables_maps_text"),
-                                       uiOutput("variables_maps_author"),
+                                    #   uiOutput("variables_maps_author"),
                                        selectInput("spatialGranularity", label = "Granularity", choices = c("Postcode", "City", "State", "Country")),
                                        actionButton("renderMap", "Go")
                          )
@@ -566,10 +566,10 @@ gdal.states <- readRDS("StatesShapeFile.rds")
       selectInput('variables_maps_ui_text', 'Text', names(maps_data()))
     })
     
-    output$variables_maps_author = renderUI({
-      selectInput('variables_maps_ui_author', 'Author', names(maps_data()))
-    })
-  
+    # output$variables_maps_author = renderUI({
+    #   selectInput('variables_maps_ui_author', 'Author', names(maps_data()))
+    # })
+    # 
     maps_data <- reactive({
         inFile <- input$file2
         if(input$fileType2 == ".csv"){
@@ -649,12 +649,11 @@ gdal.states <- readRDS("StatesShapeFile.rds")
         if(input$spatialGranularity == "State"){
           shinyalert("Mapping", "Your data is being mapped according to Australian states. This should be ready in around 60 seconds!", type = "info")
             maps_data_grouped_subregion <- reactive({
-              uploaded_maps_data_author_field <- sym(input$variables_maps_ui_author)
                 maps_data2() %>%
                     unnest_tokens(word, Cleaned_Hit_Sentence) %>%
                     inner_join(afinn) %>%
                     mutate(sentiment = case_when(value < 0 ~ "Negative", value >= 0 ~ "Positive")) %>%
-                    group_by(State_Cleaned, !!!uploaded_maps_data_author_field, sentiment) %>%
+                    group_by(State_Cleaned, sentiment) %>%
                     summarise(contribution = sum(value)) %>%
                     dplyr::ungroup() %>%
                 pivot_wider(names_from = sentiment, values_from = contribution) %>%
@@ -663,18 +662,13 @@ gdal.states <- readRDS("StatesShapeFile.rds")
                 summarise(Ave_Sentiment_per_Author = mean(true_sentiment)) %>%
                     dplyr::mutate(STE_NAME16 = State_Cleaned)
             })
-           
-            print(head(maps_data_grouped_subregion(), 20))
-            print("Made reactive dataframe")
-            gdal.states <- readRDS("StatesShapeFile.rds")
-            print("Read file")
-            gdal.states@data <- dplyr::left_join(gdal.states@data, maps_data_grouped_subregion(), by = "STE_NAME16")
-            print("Merged File")
+            gdal.states2 <- gdal.states 
+            gdal.states2@data <- dplyr::left_join(gdal.states2@data, maps_data_grouped_subregion(), by = "STE_NAME16")
             pal <- colorBin("RdYlGn", domain = maps_data_grouped_subregion()$`Ave_Sentiment_per_Author`, bins = average_sentiment_bins)
             leafletProxy("leaflet_map", data = gdal.states) %>%
                 clearControls() %>%
-                addPolygons(data = gdal.states, #,
-                            fillColor = ~pal(gdal.states$`Ave_Sentiment_per_Author`),
+                addPolygons(data = gdal.states2, #,
+                            fillColor = ~pal(gdal.states2$`Ave_Sentiment_per_Author`),
                             weight = 1,
                             opacity = 1,
                             color = "black",
@@ -686,10 +680,10 @@ gdal.states <- readRDS("StatesShapeFile.rds")
                                 dashArray = "4",
                                 fillOpacity = 0.32,
                                 bringToFront = TRUE),
-                            layerId = gdal.states@data$STE_NAME16,
+                            layerId = gdal.states2@data$STE_NAME16,
                             label = sprintf("<strong>%s</strong><br/>%s",
-                                            paste("Negative Sentiment: ", gdal.states$`Ave_Sentiment_per_Author`, sep = ""),
-                                            paste("State: ", gdal.states$STE_NAME16, sep = "")) %>%
+                                            paste("Negative Sentiment: ", gdal.states2$`Ave_Sentiment_per_Author`, sep = ""),
+                                            paste("State: ", gdal.states2$STE_NAME16, sep = "")) %>%
                                 lapply(htmltools::HTML),
                             labelOptions = labelOptions(
                                 style = list("font-weight" = "normal", padding = "3px 8px"),
